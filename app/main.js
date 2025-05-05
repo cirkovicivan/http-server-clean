@@ -7,6 +7,9 @@ const server = net.createServer(function (socket) {
   socket.on("data", function (requestBuffer) {
     const path = requestBuffer.toString().split(" ")[1];
     const headers = requestBuffer.toString().split("\r\n");
+    const body = requestBuffer.toString().split("\r\n");
+    const method = requestBuffer.toString().split(" ")[0];
+    console.log(body);
 
     if (path === "/") {
       socket.write("HTTP/1.1 200 OK\r\n\r\n");
@@ -25,15 +28,24 @@ const server = net.createServer(function (socket) {
       );
     } else if (path.startsWith("/files")) {
       const filename = path.split("/")[2];
-      const directory = process.argv[3];
-      if (fs.existsSync(`${directory}/${filename}`)) {
-        const content = fs.readFileSync(`${directory}/${filename}`).toString();
-        // octet-stream used when the file doesn't have extension
-        const res = `HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: ${content.length}\r\n\r\n${content}\r\n`;
+      const directory = process.argv[3] || "./tmp";
 
-        socket.write(res);
-      } else {
-        socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      if (method === "POST") {
+        const content = body[body.length - 1];
+        fs.writeFileSync(`${directory}/${filename}`, content);
+        socket.write(`HTTP/1.1 201 Created\r\n\r\n`);
+      } else if (method === "GET") {
+        if (fs.existsSync(`${directory}/${filename}`)) {
+          const content = fs
+            .readFileSync(`${directory}/${filename}`)
+            .toString();
+          // octet-stream used when the file doesn't have extension
+          socket.write(
+            `HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: ${content.length}\r\n\r\n${content}\r\n`
+          );
+        } else {
+          socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+        }
       }
     } else {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
