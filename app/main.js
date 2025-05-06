@@ -47,8 +47,9 @@ const server = net.createServer(function (socket) {
       socket.write(compressedData);
     } else if (path === "/user-agent") {
       // Small bug ("Accept: */*" header)
-      const userAgent = headers[2].split("User-Agent: ")[1];
-
+      const userAgent = headers
+        .find((item) => item.startsWith("User-Agent"))
+        .split("User-Agent: ")[1];
       console.log(userAgent);
       socket.write(
         `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${userAgent.length}\r\n\r\n${userAgent}`
@@ -77,8 +78,6 @@ const server = net.createServer(function (socket) {
     } else {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
     }
-
-    socket.end();
   });
 
   socket.on("end", function () {
