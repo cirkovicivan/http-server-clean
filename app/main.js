@@ -12,6 +12,11 @@ const server = net.createServer(function (socket) {
     const method = requestBuffer.toString().split(" ")[0];
 
     if (path === "/") {
+      if (headers.find((item) => item === "Connection: close")) {
+        socket.write("HTTP/1.1 200 OK\r\nConection: close\r\n\r\n");
+        socket.end();
+        return;
+      }
       socket.write("HTTP/1.1 200 OK\r\n\r\n");
     } else if (path.startsWith("/echo")) {
       const data = path.split("/")[2];
@@ -26,13 +31,28 @@ const server = net.createServer(function (socket) {
         );
         return;
       }
+
       compression = compression
         .split("Accept-Encoding: ")[1]
         .split(", ")
         .filter((item) => item === "gzip");
 
       const compressedData = zlib.gzipSync(data);
-      console.log(compression, compressedData, compressedData.length);
+
+      if (headers.find((item) => item === "Connection: close")) {
+        socket.write(
+          `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${
+            compressedData.length
+          }${
+            compression[0] === "gzip"
+              ? `\r\nContent-Encoding: ${compression[0]}`
+              : ""
+          }\r\nConnection: close\r\n\r\n`
+        );
+        socket.write(compressedData);
+        socket.end();
+        return;
+      }
 
       socket.write(
         `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${
@@ -50,7 +70,15 @@ const server = net.createServer(function (socket) {
       const userAgent = headers
         .find((item) => item.startsWith("User-Agent"))
         .split("User-Agent: ")[1];
-      console.log(userAgent);
+
+      if (headers.find((item) => item === "Connection: close")) {
+        socket.write(
+          `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${userAgent.length}\r\nConnection: close\r\n\r\n${userAgent}`
+        );
+        socket.end();
+        return;
+      }
+
       socket.write(
         `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${userAgent.length}\r\n\r\n${userAgent}`
       );
@@ -78,6 +106,8 @@ const server = net.createServer(function (socket) {
     } else {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
     }
+
+    socket.write(response.concat(""));
   });
 
   socket.on("end", function () {
