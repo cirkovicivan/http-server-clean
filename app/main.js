@@ -19,14 +19,24 @@ const server = net.createServer(function (socket) {
         .split("\r\n")
         .find((item) => item.startsWith("Accept-Encoding:"));
 
+      if (!compression) {
+        socket.write(
+          `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${data.length}\r\n\r\n${data}`
+        );
+        return;
+      }
+      compression = compression
+        .split("Accept-Encoding: ")[1]
+        .split(", ")
+        .filter((item) => item === "gzip");
+      console.log(compression);
+
       socket.write(
         `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${
           data.length
         }${
-          compression && compression.split("Accept-Encoding: ")[1] === "gzip"
-            ? `\r\nContent-Encoding: ${
-                compression.split("Accept-Encoding: ")[1]
-              }`
+          compression[0] === "gzip"
+            ? `\r\nContent-Encoding: ${compression[0]}`
             : ""
         }\r\n\r\n${data}`
       );
