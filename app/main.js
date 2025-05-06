@@ -32,7 +32,7 @@ const server = net.createServer(function (socket) {
         .filter((item) => item === "gzip");
 
       const compressedData = zlib.gzipSync(data);
-      console.log(compression, compressedData);
+      console.log(compression, compressedData, compressedData.length);
 
       socket.write(
         `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${
@@ -41,8 +41,10 @@ const server = net.createServer(function (socket) {
           compression[0] === "gzip"
             ? `\r\nContent-Encoding: ${compression[0]}`
             : ""
-        }\r\n\r\n${compressedData}`
+        }\r\n\r\n`
       );
+
+      socket.write(compressedData);
     } else if (path === "/user-agent") {
       // Small bug ("Accept: */*" header)
       const userAgent = headers[2].split("User-Agent: ")[1];
