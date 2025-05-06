@@ -9,14 +9,26 @@ const server = net.createServer(function (socket) {
     const headers = requestBuffer.toString().split("\r\n");
     const body = requestBuffer.toString().split("\r\n");
     const method = requestBuffer.toString().split(" ")[0];
-    console.log(body);
 
     if (path === "/") {
       socket.write("HTTP/1.1 200 OK\r\n\r\n");
     } else if (path.startsWith("/echo")) {
       const data = path.split("/")[2];
+      let compression = requestBuffer
+        .toString()
+        .split("\r\n")
+        .find((item) => item.startsWith("Accept-Encoding:"));
+
       socket.write(
-        `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${data.length}\r\n\r\n${data}`
+        `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${
+          data.length
+        }${
+          compression && compression.split("Accept-Encoding: ")[1] === "gzip"
+            ? `\r\nContent-Encoding: ${
+                compression.split("Accept-Encoding: ")[1]
+              }`
+            : ""
+        }\r\n\r\n${data}`
       );
     } else if (path === "/user-agent") {
       // Small bug ("Accept: */*" header)
