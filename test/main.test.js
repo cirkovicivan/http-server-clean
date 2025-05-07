@@ -197,6 +197,42 @@ describe("HTTP/1.1 Server", () => {
     });
   });
 
+  describe("Persistent Connections", () => {
+    it("should add support for persistent HTTP connections", async () => {
+      const responseRaw = await makeRawHttpRequest([
+        "GET /echo/banana HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\n\r\n",
+        "GET /user-agent HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: blueberry/apple-blueberry\r\nAccept: */*\r\nConnection: close\r\n\r\n",
+      ]);
+
+      const response1 = responseRaw[0].toString();
+      const responseBody1 = responseRaw[1].toString();
+      const response2 = responseRaw[2].toString();
+      const responseBody2 = responseRaw[3].toString();
+
+      expect(response1).to.not.include("Connection: close");
+      expect(response2).to.include("Connection: close");
+
+      expect(responseBody1).to.equal("banana");
+      expect(responseBody2).to.equal("blueberry/apple-blueberry");
+
+      assert.typeOf(responseBody1, "string");
+      assert.typeOf(responseBody2, "string");
+    });
+
+    it("should add support for explicit connection closure Connection: close header", async () => {
+      const responseRaw = await makeRawHttpRequest([
+        "GET /echo/orange HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\nConnection: close\r\n\r\n",
+      ]);
+
+      const response = responseRaw[0].toString();
+      const responseBody = responseRaw[1].toString();
+
+      expect(response).to.include("Connection: close");
+      expect(responseBody).to.equal("orange");
+      assert.typeOf(responseBody, "string");
+    });
+  });
+
   after(() => {
     server.kill();
   });
