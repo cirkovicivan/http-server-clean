@@ -2,11 +2,12 @@ const net = require("net");
 const fs = require("fs");
 const zlib = require("zlib");
 
-const server = net.createServer(function (socket) {
-  const GET = "HTTP/1.1 200 OK\r\n";
-  const POST = "HTTP/1.1 201 Created\r\n";
-  const NOT_FOUND = "HTTP/1.1 404 Not Found\r\n";
+// Constants
+const GET = "HTTP/1.1 200 OK\r\n";
+const POST = "HTTP/1.1 201 Created\r\n";
+const NOT_FOUND = "HTTP/1.1 404 Not Found\r\n";
 
+const server = net.createServer(function (socket) {
   socket.on("data", function (requestBuffer) {
     const requestLine = requestBuffer
       .toString()
@@ -24,7 +25,7 @@ const server = net.createServer(function (socket) {
     };
 
     const Response = {
-      response: [],
+      data: [],
       responseIncludesBody: false,
     };
 
@@ -51,7 +52,7 @@ const server = net.createServer(function (socket) {
       ) {
         const compressedParam = zlib.gzipSync(Request.param);
         Response.responseIncludesBody = true;
-        Response.response.push(
+        Response.data.push(
           GET,
           `Content-Type: text/plain\r\nContent-Length: ${compressedParam.length}\r\nContent-Encoding: gzip\r\n`,
           /*As gzipped data is compressed, trying to interpret it using text encoding can result in errors. This is because the compressed
@@ -60,7 +61,7 @@ const server = net.createServer(function (socket) {
         );
       } else {
         Response.responseIncludesBody = true;
-        Response.response.push(
+        Response.data.push(
           GET,
           `Content-Type: text/plain\r\nContent-Length: ${Request.param.length}\r\n`,
           Request.param
@@ -69,7 +70,7 @@ const server = net.createServer(function (socket) {
     } else if (path === "/user-agent") {
       if (Request.headers["User-Agent"]) {
         Response.responseIncludesBody = true;
-        Response.response.push(
+        Response.data.push(
           GET,
           `Content-Type: text/plain\r\nContent-Length: ${Request.headers["User-Agent"].length}\r\n`,
           Request.headers["User-Agent"]
@@ -81,11 +82,11 @@ const server = net.createServer(function (socket) {
       switch (Request.method) {
         case "POST":
           fs.writeFileSync(`${directory}/${Request.param}`, Request.body);
-          Response.response.push(POST);
+          Response.data.push(POST);
           break;
         case "GET":
           if (!fs.existsSync(`${directory}/${Request.param}`)) {
-            Response.response.push(NOT_FOUND);
+            Response.data.push(NOT_FOUND);
             break;
           }
 
@@ -96,7 +97,7 @@ const server = net.createServer(function (socket) {
           Response.responseIncludesBody = true;
 
           // octet-stream used when the file doesn't have extension
-          Response.response.push(
+          Response.data.push(
             GET,
             `Content-Type: application/octet-stream\r\nContent-Length: ${contents.length}\r\n`,
             contents
@@ -104,7 +105,7 @@ const server = net.createServer(function (socket) {
           break;
       }
     } else {
-      Response.response.push(NOT_FOUND);
+      Response.data.push(NOT_FOUND);
     }
 
     //********************************************************************************* */
@@ -115,15 +116,15 @@ const server = net.createServer(function (socket) {
     }
 
     if (Response.responseIncludesBody) {
-      const buffer = Response.response.splice(-1);
+      const buffer = Response.data.splice(-1);
 
       if (close.status) {
-        Response.response.push("Connection: close\r\n");
+        Response.data.push("Connection: close\r\n");
       }
 
-      Response.response.push("\r\n");
+      Response.data.push("\r\n");
 
-      socket.write(Response.response.join(""));
+      socket.write(Response.data.join(""));
       socket.write(buffer[0]);
       if (close.status) {
         socket.end();
@@ -132,11 +133,11 @@ const server = net.createServer(function (socket) {
     }
 
     if (close.status) {
-      Response.response.push("Connection: close\r\n");
+      Response.data.push("Connection: close\r\n");
     }
 
-    Response.response.push("\r\n");
-    socket.write(Response.response.join(""));
+    Response.data.push("\r\n");
+    socket.write(Response.data.join(""));
     if (close.status) {
       socket.end();
     }
