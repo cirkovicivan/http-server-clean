@@ -44,7 +44,7 @@ const server = net.createServer(function (socket) {
 
     if (Request.path === "/") {
       // GET + CRLF
-      Request.response.push(GET);
+      Response.data.push(GET);
     } else if (Request.path.startsWith("/echo")) {
       if (
         Request.headers["Accept-Encoding"] &&
