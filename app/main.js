@@ -3,111 +3,143 @@ const fs = require("fs");
 const zlib = require("zlib");
 
 const server = net.createServer(function (socket) {
-  console.log("-------------- client connected --------------");
+  const GET = "HTTP/1.1 200 OK\r\n";
+  const POST = "HTTP/1.1 201 Created\r\n";
+  const NOT_FOUND = "HTTP/1.1 404 Not Found\r\n";
 
   socket.on("data", function (requestBuffer) {
-    const path = requestBuffer.toString().split(" ")[1];
-    const headers = requestBuffer.toString().split("\r\n");
-    const body = requestBuffer.toString().split("\r\n");
-    const method = requestBuffer.toString().split(" ")[0];
+    const requestLine = requestBuffer
+      .toString()
+      .split("\r\n\r\n")[0]
+      .split("\r\n")
+      .slice(0, 1)[0];
+    const path = requestLine.split(" ")[1];
 
-    if (path === "/") {
-      if (headers.find((item) => item === "Connection: close")) {
-        socket.write("HTTP/1.1 200 OK\r\nConection: close\r\n\r\n");
-        socket.end();
-        return;
-      }
-      socket.write("HTTP/1.1 200 OK\r\n\r\n");
-    } else if (path.startsWith("/echo")) {
-      const data = path.split("/")[2];
-      let compression = requestBuffer
-        .toString()
-        .split("\r\n")
-        .find((item) => item.startsWith("Accept-Encoding:"));
+    const Request = {
+      param: path.split("/")[2],
+      path: path,
+      method: requestLine.split(" ")[0],
+      headers: {},
+      body: requestBuffer.toString().split("\r\n\r\n")[1],
+    };
 
-      if (!compression) {
-        socket.write(
-          `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${data.length}\r\n\r\n${data}`
+    const Response = {
+      response: [],
+      responseIncludesBody: false,
+    };
+
+    // Populate Headers
+    const headersArr = requestBuffer
+      .toString()
+      .split("\r\n\r\n")[0]
+      .split("\r\n")
+      .slice(1);
+    headersArr.forEach((element) => {
+      const values = element.split(": ");
+      Request.headers[values[0]] = values[1];
+    });
+
+    console.log(Request.headers);
+
+    if (Request.path === "/") {
+      // GET + CRLF
+      Request.response.push(GET);
+    } else if (Request.path.startsWith("/echo")) {
+      if (
+        Request.headers["Accept-Encoding"] &&
+        (Request.headers["Accept-Encoding"] || "").includes("gzip")
+      ) {
+        const compressedParam = zlib.gzipSync(Request.param);
+        Response.responseIncludesBody = true;
+        Response.response.push(
+          GET,
+          `Content-Type: text/plain\r\nContent-Length: ${compressedParam.length}\r\nContent-Encoding: gzip\r\n`,
+          /*As gzipped data is compressed, trying to interpret it using text encoding can result in errors. This is because the compressed
+          data may include byte sequences that do not correspond to valid characters in any encoding system. Keep this in mind when working with Strings*/
+          compressedParam
         );
-        return;
-      }
-
-      compression = compression
-        .split("Accept-Encoding: ")[1]
-        .split(", ")
-        .filter((item) => item === "gzip");
-
-      const compressedData = zlib.gzipSync(data);
-
-      if (headers.find((item) => item === "Connection: close")) {
-        socket.write(
-          `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${
-            compressedData.length
-          }${
-            compression[0] === "gzip"
-              ? `\r\nContent-Encoding: ${compression[0]}`
-              : ""
-          }\r\nConnection: close\r\n\r\n`
+      } else {
+        Response.responseIncludesBody = true;
+        Response.response.push(
+          GET,
+          `Content-Type: text/plain\r\nContent-Length: ${Request.param.length}\r\n`,
+          Request.param
         );
-        socket.write(compressedData);
-        socket.end();
-        return;
       }
-
-      socket.write(
-        `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${
-          compressedData.length
-        }${
-          compression[0] === "gzip"
-            ? `\r\nContent-Encoding: ${compression[0]}`
-            : ""
-        }\r\n\r\n`
-      );
-
-      socket.write(compressedData);
     } else if (path === "/user-agent") {
-      // Small bug ("Accept: */*" header)
-      const userAgent = headers
-        .find((item) => item.startsWith("User-Agent"))
-        .split("User-Agent: ")[1];
-
-      if (headers.find((item) => item === "Connection: close")) {
-        socket.write(
-          `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${userAgent.length}\r\nConnection: close\r\n\r\n${userAgent}`
+      if (Request.headers["User-Agent"]) {
+        Response.responseIncludesBody = true;
+        Response.response.push(
+          GET,
+          `Content-Type: text/plain\r\nContent-Length: ${Request.headers["User-Agent"].length}\r\n`,
+          Request.headers["User-Agent"]
         );
-        socket.end();
-        return;
       }
-
-      socket.write(
-        `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${userAgent.length}\r\n\r\n${userAgent}`
-      );
     } else if (path.startsWith("/files")) {
-      const filename = path.split("/")[2];
       const directory = process.argv[3] || "./tmp";
 
-      if (method === "POST") {
-        const content = body[body.length - 1];
-        fs.writeFileSync(`${directory}/${filename}`, content);
-        socket.write(`HTTP/1.1 201 Created\r\n\r\n`);
-      } else if (method === "GET") {
-        if (fs.existsSync(`${directory}/${filename}`)) {
-          const content = fs
-            .readFileSync(`${directory}/${filename}`)
+      switch (Request.method) {
+        case "POST":
+          fs.writeFileSync(`${directory}/${Request.param}`, Request.body);
+          Response.response.push(POST);
+          break;
+        case "GET":
+          if (!fs.existsSync(`${directory}/${Request.param}`)) {
+            Response.response.push(NOT_FOUND);
+            break;
+          }
+
+          const contents = fs
+            .readFileSync(`${directory}/${Request.param}`)
             .toString();
+
+          Response.responseIncludesBody = true;
+
           // octet-stream used when the file doesn't have extension
-          socket.write(
-            `HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: ${content.length}\r\n\r\n${content}\r\n`
+          Response.response.push(
+            GET,
+            `Content-Type: application/octet-stream\r\nContent-Length: ${contents.length}\r\n`,
+            contents
           );
-        } else {
-          socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-        }
+          break;
       }
     } else {
-      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      Response.response.push(NOT_FOUND);
     }
 
-    socket.write(response.concat(""));
+    //********************************************************************************* */
+    const close = { status: false };
+
+    if (Request.headers["Connection"] === "close") {
+      close.status = true;
+    }
+
+    if (Response.responseIncludesBody) {
+      const buffer = Response.response.splice(-1);
+
+      if (close.status) {
+        Response.response.push("Connection: close\r\n");
+      }
+
+      Response.response.push("\r\n");
+
+      socket.write(Response.response.join(""));
+      socket.write(buffer[0]);
+      if (close.status) {
+        socket.end();
+      }
+      return;
+    }
+
+    if (close.status) {
+      Response.response.push("Connection: close\r\n");
+    }
+
+    Response.response.push("\r\n");
+    socket.write(Response.response.join(""));
+    if (close.status) {
+      socket.end();
+    }
   });
 
   socket.on("end", function () {
