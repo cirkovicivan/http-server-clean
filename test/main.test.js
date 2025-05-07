@@ -138,6 +138,65 @@ describe("HTTP/1.1 Server", () => {
     });
   });
 
+  describe("HTTP Compression", () => {
+    it("should add Content-Encoding header upon receiving Accept-Encoding header", async () => {
+      const response = await makeRawHttpRequest([
+        "GET /echo/foo HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\nAccept-Encoding: gzip\r\nConnection: close\r\n\r\n",
+      ]);
+
+      const headers = response[0].toString();
+
+      expect(headers).to.include("Content-Encoding: gzip");
+    });
+
+    it("should not add Content-Encoding header upon receiving invalid Accept-Encoding header", async () => {
+      const response = await makeRawHttpRequest([
+        "GET /echo/foo HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\nAccept-Encoding: invalid-encoding\r\nConnection: close\r\n\r\n",
+      ]);
+
+      const headers = response[0].toString();
+
+      expect(headers).to.not.include("Content-Encoding: gzip");
+    });
+
+    it("should handle multiple compression schemes (both invalid & valid)", async () => {
+      const response = await makeRawHttpRequest([
+        "GET /echo/abc HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\nAccept-Encoding: invalid-encoding-1, gzip, invalid-encoding-2\r\nConnection: close\r\n\r\n",
+      ]);
+
+      const headers = response[0].toString();
+
+      expect(headers).to.include("Content-Encoding: gzip");
+    });
+
+    it("should handle multiple compression schemes (only invalid)", async () => {
+      const response = await makeRawHttpRequest([
+        "GET /echo/abc HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\nAccept-Encoding: invalid-encoding-1, invalid-encoding-2, invalid-encoding-3\r\nConnection: close\r\n\r\n",
+      ]);
+
+      const headers = response[0].toString();
+
+      expect(headers).to.not.include("Content-Encoding: gzip");
+    });
+
+    it("should return gzip compressed file", async () => {
+      const response = await makeRawHttpRequest([
+        "GET /echo/abc HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\nAccept-Encoding: gzip\r\nConnection: close\r\n\r\n",
+      ]);
+
+      const [headersRaw, bodyRaw] = response;
+
+      const headers = headersRaw.toString();
+
+      expect(headers).to.include("Content-Encoding: gzip");
+
+      const decompressed = zlib.gunzipSync(bodyRaw).toString();
+
+      expect(decompressed).to.equal("abc");
+      assert.typeOf(decompressed, "string");
+    });
+  });
+
   after(() => {
     server.kill();
   });
