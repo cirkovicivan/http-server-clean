@@ -24,9 +24,10 @@ describe("HTTP/1.1 Server", () => {
 
       client.on("data", (chunk) => {
         chunks.push(chunk);
-
         if (++responsesReceived < requestStrings.length) {
           client.write(requestStrings[responsesReceived]);
+        } else {
+          client.end();
         }
       });
 
@@ -41,53 +42,51 @@ describe("HTTP/1.1 Server", () => {
   describe("Basic Routing", () => {
     it("should respond with a 200 OK on /", async () => {
       const responseRaw = await makeRawHttpRequest([
-        "GET / HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.64.1\r\nAccept: */*\r\nConnection: close\r\n\r\n",
+        "GET / HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.64.1\r\nAccept: */*\r\n\r\n",
       ]);
 
-      const headers = responseRaw[0].toString();
+      const headers = responseRaw.join("");
 
-      expect(headers).to.equal("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n");
+      expect(headers).to.equal("HTTP/1.1 200 OK\r\n\r\n");
     });
 
     it("should respond with 404 NOT FOUND on /abcdefg", async () => {
       const responseRaw = await makeRawHttpRequest([
-        "GET /abcdefg HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.64.1\r\nAccept: */*\r\nConnection: close\r\n\r\n",
+        "GET /abcdefg HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.64.1\r\nAccept: */*\r\n\r\n",
       ]);
 
-      const headers = responseRaw[0].toString();
+      const headers = responseRaw.join("");
 
-      expect(headers).to.equal(
-        "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n"
-      );
+      expect(headers).to.equal("HTTP/1.1 404 Not Found\r\n\r\n");
     });
 
     it("should return url param on /echo/{arg}", async () => {
       const responseRaw = await makeRawHttpRequest([
-        "GET /echo/abc HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.64.1\r\nAccept: */*\r\nConnection: close\r\n\r\n",
+        "GET /echo/abc HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.64.1\r\nAccept: */*\r\n\r\n",
       ]);
 
       const response = responseRaw.join("");
 
       expect(response).to.equal(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 3\r\nConnection: close\r\n\r\nabc"
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 3\r\n\r\nabc"
       );
     });
 
     it("should read the User-Agent request header and return it", async () => {
       const responseRaw = await makeRawHttpRequest([
-        "GET /user-agent HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: foobar/1.2.3\r\nAccept: */*\r\nConnection: close\r\n\r\n",
+        "GET /user-agent HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: foobar/1.2.3\r\nAccept: */*\r\n\r\n",
       ]);
 
       const response = responseRaw.join("");
 
       expect(response).to.equal(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 12\r\nConnection: close\r\n\r\nfoobar/1.2.3"
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 12\r\n\r\nfoobar/1.2.3"
       );
     });
 
     it("should handle concurrent connections", async () => {
       const request =
-        "GET / HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl\r\nAccept: */*\r\nConnection: close\r\n\r\n";
+        "GET / HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl\r\nAccept: */*\r\n\r\n";
 
       const [response1, response2, response3] = await Promise.all([
         makeRawHttpRequest([request]),
@@ -95,11 +94,11 @@ describe("HTTP/1.1 Server", () => {
         makeRawHttpRequest([request]),
       ]);
 
-      const headers1 = response1[0].toString();
-      const headers2 = response2[0].toString();
-      const headers3 = response3[0].toString();
+      const headers1 = response1.join("");
+      const headers2 = response2.join("");
+      const headers3 = response3.join("");
 
-      expect(headers1).to.equal("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n");
+      expect(headers1).to.equal("HTTP/1.1 200 OK\r\n\r\n");
       expect(headers2).to.equal(headers1);
       expect(headers3).to.equal(headers1);
     });
@@ -184,7 +183,7 @@ describe("HTTP/1.1 Server", () => {
         "GET /echo/abc HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\nAccept-Encoding: gzip\r\nConnection: close\r\n\r\n",
       ]);
 
-      const [headersRaw, bodyRaw] = response;
+      const [statusRaw, headersRaw, bodyRaw] = response;
 
       const headers = headersRaw.toString();
 

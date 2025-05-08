@@ -3,144 +3,225 @@ const fs = require("fs");
 const zlib = require("zlib");
 
 // Constants
-const GET = "HTTP/1.1 200 OK\r\n";
-const POST = "HTTP/1.1 201 Created\r\n";
-const NOT_FOUND = "HTTP/1.1 404 Not Found\r\n";
+
+const message = {
+  200: "OK",
+  404: "Not Found",
+  201: "Created",
+};
+
+// Functions
+
+/*
+  // Request line
+  GET                          // HTTP method
+  /index.html                  // Request target
+  HTTP/1.1                     // HTTP version
+  \r\n                         // CRLF that marks the end of the request line
+
+  // Headers
+  Host: localhost:4221\r\n     // Header that specifies the server's host and port
+  User-Agent: curl/7.64.1\r\n  // Header that describes the client's user agent
+  Accept: *\r\n              // Header that specifies which media types the client can accept
+  \r\n                         // CRLF that marks the end of the headers
+
+  // Request body (empty)
+*/
+
+/**
+ * @param {Buffer} requestBuffer
+ * @return {{method, route, param, headers, body}}
+ */
+const parseRequest = (requestBuffer) => {
+  const splitRequest = requestBuffer.toString().split("\r\n\r\n");
+
+  const requestLineAndHeaders = splitRequest[0];
+  const body = splitRequest[1];
+
+  const requestParts = requestLineAndHeaders.split("\r\n");
+
+  const requestLine = requestParts[0];
+  const headers = {};
+  requestParts.slice(1).forEach((headerLine) => {
+    const [key, value] = headerLine.split(": ");
+    headers[key] = value;
+  });
+
+  const requestLineParts = requestLine.split(" ");
+
+  const method = requestLineParts[0];
+  const path = requestLineParts[1];
+  const parts = path.split("/");
+  const route = `/${parts[1]}`;
+  const param = parts[2];
+
+  return Object.assign(
+    { method, route, headers },
+    body ? { body } : {},
+    param ? { param } : {}
+  );
+};
+
+const handleRequest = (request) => {
+  const routeHandler = handleRoute(request.route);
+
+  if (!routeHandler) return { status: 404, headers: {}, body: "" };
+
+  const { status, headers, body } = routeHandler(request);
+
+  return { status, headers, body };
+};
+
+const handleRoute = (route) => {
+  const routes = {
+    "/": handleRootRequest,
+    "/echo": handleEchoRequest,
+    "/user-agent": handleUserAgentRequest,
+    "/files": handleFileRequest,
+  };
+
+  return routes[route];
+};
+
+const handleRootRequest = (request) => {
+  return { status: 200, headers: {}, body: "" };
+};
+
+const handleEchoRequest = (request) => {
+  if (!request.headers["Accept-Encoding"]?.includes("gzip")) {
+    return {
+      status: 200,
+      headers: {
+        "Content-Type": "text/plain",
+        "Content-Length": request.param.length,
+      },
+      body: request.param,
+    };
+  }
+
+  const compressedParam = zlib.gzipSync(Request.param);
+
+  return {
+    status: 200,
+    headers: {
+      "Content-Type": "text/plain",
+      "Content-Length": compressedParam.length,
+      "Content-Encoding": "gzip",
+    },
+    body: compressedParam,
+  };
+};
+
+const handleUserAgentRequest = (request) => {
+  const userAgentHeader = request.headers["User-Agent"];
+
+  return {
+    status: 200,
+    headers: {
+      "Content-Type": "text/plain",
+      "Content-Length": userAgentHeader.length,
+    },
+    body: userAgentHeader,
+  };
+};
+
+const handleFileRequest = (request) => {};
+
+const generateResponse = (status, headers, body) => {
+  const headerString = Object.entries(headers)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\r\n");
+
+  const response = {
+    status: `HTTP/1.1 ${status} ${message[status]}\r\n`,
+    headers: headerString ? headerString + "\r\n\r\n" : "\r\n",
+    body,
+  };
+  console.log(response);
+  return response;
+};
+
+const sendResponse = (socket, response) => {
+  socket.write(response.status);
+  socket.write(response.headers);
+  socket.write(response.body);
+};
 
 const server = net.createServer(function (socket) {
   socket.on("data", function (requestBuffer) {
-    const requestLine = requestBuffer
-      .toString()
-      .split("\r\n\r\n")[0]
-      .split("\r\n")
-      .slice(0, 1)[0];
-    const path = requestLine.split(" ")[1];
+    const request = parseRequest(requestBuffer);
+    console.log(request);
 
-    const Request = {
-      param: path.split("/")[2],
-      path: path,
-      method: requestLine.split(" ")[0],
-      headers: {},
-      body: requestBuffer.toString().split("\r\n\r\n")[1],
-    };
+    const { status, headers, body } = handleRequest(request);
 
-    const Response = {
-      data: [],
-      responseIncludesBody: false,
-    };
+    const response = generateResponse(status, headers, body);
 
-    // Populate Headers
-    const headersArr = requestBuffer
-      .toString()
-      .split("\r\n\r\n")[0]
-      .split("\r\n")
-      .slice(1);
-    headersArr.forEach((element) => {
-      const values = element.split(": ");
-      Request.headers[values[0]] = values[1];
-    });
+    sendResponse(socket, response);
 
-    console.log(Request.headers);
+    //
+    // } else if (path.startsWith("/files")) {
+    //   const directory = process.argv[3] || "./tmp";
 
-    if (Request.path === "/") {
-      // GET + CRLF
-      Response.data.push(GET);
-    } else if (Request.path.startsWith("/echo")) {
-      if (
-        Request.headers["Accept-Encoding"] &&
-        (Request.headers["Accept-Encoding"] || "").includes("gzip")
-      ) {
-        const compressedParam = zlib.gzipSync(Request.param);
-        Response.responseIncludesBody = true;
-        Response.data.push(
-          GET,
-          `Content-Type: text/plain\r\nContent-Length: ${compressedParam.length}\r\nContent-Encoding: gzip\r\n`,
-          /*As gzipped data is compressed, trying to interpret it using text encoding can result in errors. This is because the compressed
-          data may include byte sequences that do not correspond to valid characters in any encoding system. Keep this in mind when working with Strings*/
-          compressedParam
-        );
-      } else {
-        Response.responseIncludesBody = true;
-        Response.data.push(
-          GET,
-          `Content-Type: text/plain\r\nContent-Length: ${Request.param.length}\r\n`,
-          Request.param
-        );
-      }
-    } else if (path === "/user-agent") {
-      if (Request.headers["User-Agent"]) {
-        Response.responseIncludesBody = true;
-        Response.data.push(
-          GET,
-          `Content-Type: text/plain\r\nContent-Length: ${Request.headers["User-Agent"].length}\r\n`,
-          Request.headers["User-Agent"]
-        );
-      }
-    } else if (path.startsWith("/files")) {
-      const directory = process.argv[3] || "./tmp";
+    //   switch (Request.method) {
+    //     case "POST":
+    //       fs.writeFileSync(`${directory}/${Request.param}`, Request.body);
+    //       Response.data.push(POST);
+    //       break;
+    //     case "GET":
+    //       if (!fs.existsSync(`${directory}/${Request.param}`)) {
+    //         Response.data.push(NOT_FOUND);
+    //         break;
+    //       }
 
-      switch (Request.method) {
-        case "POST":
-          fs.writeFileSync(`${directory}/${Request.param}`, Request.body);
-          Response.data.push(POST);
-          break;
-        case "GET":
-          if (!fs.existsSync(`${directory}/${Request.param}`)) {
-            Response.data.push(NOT_FOUND);
-            break;
-          }
+    //       const contents = fs
+    //         .readFileSync(`${directory}/${Request.param}`)
+    //         .toString();
 
-          const contents = fs
-            .readFileSync(`${directory}/${Request.param}`)
-            .toString();
+    //       Response.responseIncludesBody = true;
 
-          Response.responseIncludesBody = true;
+    //       // octet-stream used when the file doesn't have extension
+    //       Response.data.push(
+    //         GET,
+    //         `Content-Type: application/octet-stream\r\nContent-Length: ${contents.length}\r\n`,
+    //         contents
+    //       );
+    //       break;
+    //   }
+    //
 
-          // octet-stream used when the file doesn't have extension
-          Response.data.push(
-            GET,
-            `Content-Type: application/octet-stream\r\nContent-Length: ${contents.length}\r\n`,
-            contents
-          );
-          break;
-      }
-    } else {
-      Response.data.push(NOT_FOUND);
-    }
+    // //********************************************************************************* */
+    // const close = { status: false };
 
-    //********************************************************************************* */
-    const close = { status: false };
+    // if (Request.headers["Connection"] === "close") {
+    //   close.status = true;
+    // }
 
-    if (Request.headers["Connection"] === "close") {
-      close.status = true;
-    }
+    // if (Response.responseIncludesBody) {
+    //   const buffer = Response.data.splice(-1);
 
-    if (Response.responseIncludesBody) {
-      const buffer = Response.data.splice(-1);
+    //   if (close.status) {
+    //     Response.data.push("Connection: close\r\n");
+    //   }
 
-      if (close.status) {
-        Response.data.push("Connection: close\r\n");
-      }
+    //   Response.data.push("\r\n");
 
-      Response.data.push("\r\n");
+    //   socket.write(Response.data.join(""));
+    //   socket.write(buffer[0]);
+    //   if (close.status) {
+    //     socket.end();
+    //   }
+    //   return;
+    // }
 
-      socket.write(Response.data.join(""));
-      socket.write(buffer[0]);
-      if (close.status) {
-        socket.end();
-      }
-      return;
-    }
+    // if (close.status) {
+    //   Response.data.push("Connection: close\r\n");
+    // }
 
-    if (close.status) {
-      Response.data.push("Connection: close\r\n");
-    }
-
-    Response.data.push("\r\n");
-    socket.write(Response.data.join(""));
-    if (close.status) {
-      socket.end();
-    }
+    // Response.data.push("\r\n");
+    // socket.write(Response.data.join(""));
+    // if (close.status) {
+    //   socket.end();
+    // }
   });
 
   socket.on("end", function () {
