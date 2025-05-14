@@ -99,7 +99,7 @@ const handleEchoRequest = (request) => {
     };
   }
 
-  const compressedParam = zlib.gzipSync(Request.param);
+  const compressedParam = zlib.gzipSync(request.param);
 
   return {
     status: 200,
@@ -125,7 +125,40 @@ const handleUserAgentRequest = (request) => {
   };
 };
 
-const handleFileRequest = (request) => {};
+const handleFileRequest = (request) => {
+  const directory = process.argv[3] || "./tmp";
+
+  if (request.method === "GET") {
+    if (!fs.existsSync(`${directory}/${request.param}`))
+      return {
+        status: 404,
+        headers: {},
+        body: "",
+      };
+
+    const fileContents = fs
+      .readFileSync(`${directory}/${request.param}`)
+      .toString();
+
+    // octet-stream used when the file doesn't have extension
+    return {
+      status: 200,
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": fileContents.length,
+      },
+      body: fileContents,
+    };
+  }
+
+  fs.writeFileSync(`${directory}/${request.param}`, request.body);
+
+  return {
+    status: 201,
+    headers: {},
+    body: "",
+  };
+};
 
 const generateResponse = (status, headers, body) => {
   const headerString = Object.entries(headers)
@@ -137,7 +170,7 @@ const generateResponse = (status, headers, body) => {
     headers: headerString ? headerString + "\r\n\r\n" : "\r\n",
     body,
   };
-  console.log(response);
+
   return response;
 };
 
@@ -157,37 +190,6 @@ const server = net.createServer(function (socket) {
     const response = generateResponse(status, headers, body);
 
     sendResponse(socket, response);
-
-    //
-    // } else if (path.startsWith("/files")) {
-    //   const directory = process.argv[3] || "./tmp";
-
-    //   switch (Request.method) {
-    //     case "POST":
-    //       fs.writeFileSync(`${directory}/${Request.param}`, Request.body);
-    //       Response.data.push(POST);
-    //       break;
-    //     case "GET":
-    //       if (!fs.existsSync(`${directory}/${Request.param}`)) {
-    //         Response.data.push(NOT_FOUND);
-    //         break;
-    //       }
-
-    //       const contents = fs
-    //         .readFileSync(`${directory}/${Request.param}`)
-    //         .toString();
-
-    //       Response.responseIncludesBody = true;
-
-    //       // octet-stream used when the file doesn't have extension
-    //       Response.data.push(
-    //         GET,
-    //         `Content-Type: application/octet-stream\r\nContent-Length: ${contents.length}\r\n`,
-    //         contents
-    //       );
-    //       break;
-    //   }
-    //
 
     // //********************************************************************************* */
     // const close = { status: false };
